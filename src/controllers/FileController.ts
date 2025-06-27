@@ -1,30 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import supabase from '../utils/supabaseClient';
 import multer from 'multer';
-import path from 'path';
+import { FileUploadResponse, FileData } from '../types/file.types';
 
 export const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
 });
-
-interface FileUploadResponse {
-  filename: string;
-  originalname: string;
-  path: string;
-  url: string | null;
-}
-
-interface FileData {
-  id: string;
-  user_id: string;
-  originalname: string;
-  filename: string;
-  path: string;
-  mimetype: string;
-  size: number;
-  url: string | null;
-}
 
 const logError = (message: string, error: any) => {
   if (process.env.NODE_ENV !== 'production') {

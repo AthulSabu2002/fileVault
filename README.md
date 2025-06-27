@@ -64,12 +64,12 @@ npm start
 
 ### File Operations
 
-- `POST /api/files/upload` - Upload a new file
+<!-- - `POST /api/files/upload` - Upload a new file
 - `POST /api/files/download` - Download a specific file
 - `GET /api/files` - List all files accessible to the user
 - `GET /api/files/:id` - Download a specific file
 - `DELETE /api/files/:id` - Delete a file
-- `PATCH /api/files/:id` - Update file metadata
+- `PATCH /api/files/:id` - Update file metadata -->
 
 ## Project Structure
 
