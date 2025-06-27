@@ -1,10 +1,8 @@
 import { Router } from 'express';
-import multer from 'multer';
 import { verifyToken } from '../middlewares/VerifyToken';
-import FileController from '../controllers/FileController';
+import FileController, { upload } from '../controllers/FileController';
 
 const router = Router();
-const upload = multer({ dest: 'uploads/' });
 
 const fileController = new FileController();
 
