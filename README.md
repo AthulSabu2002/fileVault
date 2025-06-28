@@ -9,14 +9,17 @@ A secure file storage and retrieval system that allows authorized users to uploa
 - **TypeScript** - Programming language
 - **Supabase** - Backend-as-a-Service for authentication and file storage
 - **Object-Oriented Programming** - Class-based architecture
+- **AES-256-GCM Encryption** - For secure file storage
 
 ## Features
 
 - Secure file upload and storage
+- End-to-end file encryption and decryption
 - File retrieval for authorized users
 - User authentication and authorization
 - File metadata management
 - Clean class-based architecture
+- File renaming and deletion capabilities
 
 ## Installation
 
