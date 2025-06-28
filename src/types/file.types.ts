@@ -14,4 +14,8 @@ export interface FileData {
   mimetype: string;
   size: number;
   url: string | null;
+  created_at: string;
+  iv?: string;
+  auth_tag?: string;
+  is_encrypted: boolean;
 }

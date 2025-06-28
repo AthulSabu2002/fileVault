@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import supabase from '../utils/supabaseClient';
 import multer from 'multer';
 import { FileUploadResponse, FileData } from '../types/file.types';
+import { encryptFile, decryptFile } from '../utils/encryptionUtils';
 
 export const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -51,6 +52,7 @@ export default class FileController {
 
   /**
    * Handles file upload to Supabase storage and records metadata in database
+   * Files are encrypted before storage
    */
   public uploadFile = async(req: Request, res: Response, next: NextFunction) => {
     try {
@@ -68,12 +70,15 @@ export default class FileController {
       const fileData = req.file.buffer;
       const bucketName = 'file-vault';
 
+      // Encrypt file data before upload
+      const { encryptedData, iv, authTag } = encryptFile(fileData);
+
       const uniqueFileName = `${Date.now()}-${originalname}`;
       const filePath = `${user.id}/${uniqueFileName}`;
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(bucketName)
-        .upload(filePath, fileData, {
+        .upload(filePath, encryptedData, {
           contentType: mimetype,
           upsert: false
         });
@@ -102,7 +107,10 @@ export default class FileController {
           path: filePath,
           mimetype,
           size,
-          url: publicUrl
+          url: publicUrl,
+          iv,
+          auth_tag: authTag,
+          is_encrypted: true
         }
       ]);
 
@@ -133,6 +141,7 @@ export default class FileController {
 
   /**
    * Handles file download from Supabase storage
+   * Decrypts files before sending to client
    */
   public downloadFile = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -180,12 +189,35 @@ export default class FileController {
         return;
       }
       
+      let fileBuffer;
+      
+      // Check if the file is encrypted and needs decryption
+      if (typedFileData.is_encrypted && typedFileData.iv && typedFileData.auth_tag) {
+        const encryptedBuffer = await data.arrayBuffer();
+        try {
+          fileBuffer = decryptFile(
+            Buffer.from(encryptedBuffer), 
+            typedFileData.iv, 
+            typedFileData.auth_tag
+          );
+        } catch (decryptionError) {
+          logError('Decryption error:', decryptionError);
+          res.status(500).json({ 
+            success: false, 
+            message: 'Failed to decrypt file' 
+          });
+          return;
+        }
+      } else {
+        // Handle legacy files that were not encrypted
+        const rawBuffer = await data.arrayBuffer();
+        fileBuffer = Buffer.from(rawBuffer);
+      }
+      
       res.setHeader('Content-Type', typedFileData.mimetype);
       res.setHeader('Content-Disposition', `attachment; filename="${typedFileData.originalname}"`);
       
-      const buffer = await data.arrayBuffer();
-      
-      res.send(Buffer.from(buffer));
+      res.send(fileBuffer);
       
     } catch (error) {
       logError('Unexpected error in downloadFile:', error);
