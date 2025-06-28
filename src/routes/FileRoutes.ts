@@ -6,7 +6,14 @@ const router = Router();
 
 const fileController = new FileController();
 
+router.get('/list', verifyToken, fileController.listFiles.bind(fileController));
+
 router.post('/upload', verifyToken, upload.single('file'), fileController.uploadFile.bind(fileController));
+
 router.post('/download', verifyToken, fileController.downloadFile.bind(fileController));
+
+router.put('/update', verifyToken, fileController.updateFileName.bind(fileController));
+
+router.delete('/delete', verifyToken, fileController.deleteFile.bind(fileController));
 
 export default router;

@@ -7,6 +7,7 @@ A secure file storage and retrieval system that allows authorized users to uploa
 - **Node.js** - Runtime environment
 - **Express.js** - Web server framework
 - **TypeScript** - Programming language
+- **Supabase** - Backend-as-a-Service for authentication and file storage
 - **Object-Oriented Programming** - Class-based architecture
 
 ## Features
@@ -35,9 +36,9 @@ npm install
 Create a `.env` file in the project root with the following variables:
 
 ```
-PORT=3000
-STORAGE_PATH=./uploads
-JWT_SECRET=your_secret_key
+PORT=3000 SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+NODE_ENV=development
 ```
 
 ## Running the Application
@@ -59,32 +60,30 @@ npm start
 
 ### Authentication
 
-- `POST /api/auth/signUp` - Register a new user
-- `POST /api/auth/signIn` - Login and receive an access token
+- `POST /api/auth/signup` - Register a new user
+- `POST /api/auth/signin` - Login and receive an access token
+- `POST /api/auth/refresh` - Refresh an expired token
 
 ### File Operations
 
-<!-- - `POST /api/files/upload` - Upload a new file
-- `POST /api/files/download` - Download a specific file
 - `GET /api/files` - List all files accessible to the user
-- `GET /api/files/:id` - Download a specific file
-- `DELETE /api/files/:id` - Delete a file
-- `PATCH /api/files/:id` - Update file metadata -->
+- `POST /api/files/upload` - Upload a new file (with multer handling)
+- `POST /api/files/download` - Download a specific file using file ID
+- `PATCH /api/files/rename` - Update file name
+- `DELETE /api/files` - Delete a file
 
 ## Project Structure
 
 ```
 file_vault/
 ├── src/
-│   ├── controllers/       # Request handlers
-│   ├── services/          # Business logic
-│   ├── models/            # Data models
-│   ├── middlewares/       # Express middlewares
-│   ├── utils/             # Utility functions
-│   ├── routes/            # API routes
-│   └── index.ts           # Entry point
-├── uploads/               # File storage directory
-├── tests/                 # Test files
+│   ├── controllers/       # Request handlers (FileController, AuthController)
+│   ├── core/              # Application core (App)
+│   ├── middlewares/       # Express middlewares (VerifyToken, ErrorMiddleware)
+│   ├── routes/            # API routes (FileRoutes, AuthRoutes)
+│   ├── types/             # Type definitions
+│   ├── utils/             # Utility functions (supabaseClient)
+│   └── server.ts          # Entry point
 ├── tsconfig.json          # TypeScript configuration
 ├── package.json           # Project dependencies
 └── README.md              # This file
@@ -92,11 +91,17 @@ file_vault/
 
 ## Authentication and Authorization
 
-The application uses JWT (JSON Web Tokens) for authentication. To access protected endpoints, include the token in your request headers:
+The application uses Supabase Authentication with JWT tokens for user management and access control. To access protected endpoints, include the token in your request headers:
 
 ```
 Authorization: Bearer <your_token>
 ```
+
+The system supports:
+
+- Email/password authentication
+- Token refresh functionality
+- User-specific file access controls
 
 ## Error Handling
 
@@ -116,7 +121,3 @@ The API returns standard HTTP status codes and JSON error responses:
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License.

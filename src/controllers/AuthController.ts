@@ -31,10 +31,12 @@ export default class AuthController {
             }
 
             const jwt = signInData.session?.access_token;
+            const refreshToken = signInData.session?.refresh_token;
 
             res.status(201).json({
                 user: signInData.user,
                 jwt,
+                refreshToken
             });
         } catch (err) {
             next(err);
@@ -60,10 +62,40 @@ export default class AuthController {
             }
 
             const jwt = data.session?.access_token;
+            const refreshToken = data.session?.refresh_token;
 
             res.status(200).json({
                 user: data.user,
                 jwt,
+                refreshToken
+            });
+        } catch (err) {
+            next(err);
+        }
+    }
+
+    public refreshToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { refreshToken } = req.body;
+            
+            if (!refreshToken) {
+                res.status(400).json({ error: 'Refresh token is required.' });
+                return;
+            }
+
+            const { data, error } = await supabase.auth.refreshSession({
+                refresh_token: refreshToken
+            });
+
+            if (error || !data.session) {
+                res.status(401).json({ error: error?.message || 'Failed to refresh token' });
+                return;
+            }
+
+            res.status(200).json({
+                jwt: data.session.access_token,
+                refreshToken: data.session.refresh_token,
+                user: data.user
             });
         } catch (err) {
             next(err);

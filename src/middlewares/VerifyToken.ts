@@ -7,7 +7,7 @@ export const verifyToken = async (req: Request, res: Response, next: NextFunctio
   if (!authHeader) {
     res.status(401).json({ message: 'Missing Authorization header' });
     return;
-}
+  }
 
   const token = authHeader.split(' ')[1];
 
@@ -16,7 +16,7 @@ export const verifyToken = async (req: Request, res: Response, next: NextFunctio
   if (error || !data.user) {
     res.status(401).json({ message: 'Invalid or expired token' });
     return
-}
+  }
 
   (req as any).user = data.user;
   next();

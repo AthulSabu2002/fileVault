@@ -18,6 +18,38 @@ const logError = (message: string, error: any) => {
 
 export default class FileController {
   /**
+   * Lists all files belonging to the authenticated user
+   */
+  public listFiles = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+
+      const { data: files, error } = await supabase
+        .from('files')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        logError('Database error in listFiles:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to fetch files'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        files
+      });
+    } catch (error) {
+      logError('Unexpected error in listFiles:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Handles file upload to Supabase storage and records metadata in database
    */
   public uploadFile = async(req: Request, res: Response, next: NextFunction) => {
@@ -25,10 +57,11 @@ export default class FileController {
       const user = (req as any).user;
       
       if (!req.file) {
-        return res.status(400).json({ 
+        res.status(400).json({ 
           success: false, 
           message: 'No file uploaded' 
         });
+        return;
       }
 
       const { originalname, mimetype, size } = req.file;
@@ -48,10 +81,11 @@ export default class FileController {
       if (uploadError) {
         logError('Upload error:', uploadError);
         
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           message: 'Failed to upload file to storage' 
         });
+        return;
       }
 
       const { data: urlData } = supabase.storage
@@ -75,10 +109,11 @@ export default class FileController {
       if (dbError) {
         logError('Database error:', dbError);
         
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           message: 'Failed to save file metadata' 
         });
+        return;
       }
 
       const response: FileUploadResponse = {
@@ -88,12 +123,11 @@ export default class FileController {
         url: publicUrl
       };
       
-      return res.status(200).json(response);
+      res.status(200).json(response);
       
     } catch (error) {
       logError('Unexpected error in uploadFile:', error);
-      
-      return next(error);
+      next(error);
     }
   }
 
@@ -106,10 +140,11 @@ export default class FileController {
       const user = (req as any).user;
   
       if (!fileId) {
-        return res.status(400).json({ 
+        res.status(400).json({ 
           success: false, 
           message: 'File ID is required' 
         });
+        return;
       }
       
       const { data: fileData, error: dbError } = await supabase
@@ -122,10 +157,11 @@ export default class FileController {
       if (dbError || !fileData) {
         logError('Database query error or file not found:', dbError);
         
-        return res.status(404).json({ 
+        res.status(404).json({ 
           success: false, 
           message: 'File not found' 
         });
+        return;
       }
 
       const typedFileData = fileData as unknown as FileData;
@@ -137,10 +173,11 @@ export default class FileController {
       if (downloadError || !data) {
         logError('Download error:', downloadError);
         
-        return res.status(500).json({ 
+        res.status(500).json({ 
           success: false, 
           message: 'Failed to download file from storage' 
         });
+        return;
       }
       
       res.setHeader('Content-Type', typedFileData.mimetype);
@@ -148,12 +185,173 @@ export default class FileController {
       
       const buffer = await data.arrayBuffer();
       
-      return res.send(Buffer.from(buffer));
+      res.send(Buffer.from(buffer));
       
     } catch (error) {
       logError('Unexpected error in downloadFile:', error);
-      
-      return next(error);
+      next(error);
+    }
+  }
+
+  /**
+ * Updates the file name in Supabase storage and database
+ */
+  public updateFileName = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { fileId, newName } = req.body;
+      const user = (req as any).user;
+
+      if (!fileId || !newName) {
+        res.status(400).json({
+          success: false,
+          message: 'File ID and new name are required'
+        });
+        return;
+      }
+
+      const { data: fileData, error: dbError } = await supabase
+        .from('files')
+        .select('*')
+        .eq('id', fileId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (dbError || !fileData) {
+        logError('Database query error or file not found:', dbError);
+        res.status(404).json({
+          success: false,
+          message: 'File not found'
+        });
+        return;
+      }
+
+      const typedFileData = fileData as unknown as FileData;
+      const oldPath = typedFileData.path;
+      const fileExt = typedFileData.originalname.split('.').pop();
+      const newFilename = `${newName}.${fileExt}`;
+      const newPath = `${user.id}/${newFilename}`;
+
+      const { error: moveError } = await supabase.storage
+        .from('file-vault')
+        .move(oldPath, newPath);
+
+      if (moveError) {
+        logError('Storage move error:', moveError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to rename file in storage'
+        });
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('file-vault')
+        .getPublicUrl(newPath);
+      const publicUrl = urlData?.publicUrl || null;
+
+      const { error: updateDbError } = await supabase
+        .from('files')
+        .update({
+          filename: newFilename,
+          path: newPath,
+          url: publicUrl
+        })
+        .eq('id', fileId)
+        .eq('user_id', user.id);
+
+      if (updateDbError) {
+        logError('Database update error:', updateDbError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to update file metadata'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'File name updated successfully',
+        filename: newFilename,
+        path: newPath,
+        url: publicUrl
+      });
+
+    } catch (error) {
+      logError('Unexpected error in updateFileName:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Handles file delete from Supabase storage
+   */
+  public deleteFile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { fileId } = req.body;
+      const user = (req as any).user;
+
+      if (!fileId) {
+        res.status(400).json({
+          success: false,
+          message: 'File ID is required'
+        });
+        return;
+      }
+
+      const { data: fileData, error: dbError } = await supabase
+        .from('files')
+        .select('*')
+        .eq('id', fileId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (dbError || !fileData) {
+        logError('Database query error or file not found:', dbError);
+        res.status(404).json({
+          success: false,
+          message: 'File not found'
+        });
+        return;
+      }
+
+      const typedFileData = fileData as unknown as FileData;
+
+      const { error: storageError } = await supabase.storage
+        .from('file-vault')
+        .remove([typedFileData.path]);
+
+      if (storageError) {
+        logError('Storage deletion error:', storageError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to delete file from storage'
+        });
+        return;
+      }
+
+      const { error: deleteDbError } = await supabase
+        .from('files')
+        .delete()
+        .eq('id', fileId)
+        .eq('user_id', user.id);
+
+      if (deleteDbError) {
+        logError('Database deletion error:', deleteDbError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to delete file metadata'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'File deleted successfully'
+      });
+
+    } catch (error) {
+      logError('Unexpected error in deleteFile:', error);
+      next(error);
     }
   }
 }
