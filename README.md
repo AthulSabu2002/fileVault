@@ -39,8 +39,10 @@ npm install
 Create a `.env` file in the project root with the following variables:
 
 ```
-PORT=3000 SUPABASE_URL=your_supabase_url
+PORT=3000
+SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
+ENCRYPTION_KEY=your_secure_encryption_key_min_32_chars
 NODE_ENV=development
 ```
 
@@ -85,7 +87,7 @@ file_vault/
 │   ├── middlewares/       # Express middlewares (VerifyToken, ErrorMiddleware)
 │   ├── routes/            # API routes (FileRoutes, AuthRoutes)
 │   ├── types/             # Type definitions
-│   ├── utils/             # Utility functions (supabaseClient)
+│   ├── utils/             # Utility functions (supabaseClient, encryptionUtils)
 │   └── server.ts          # Entry point
 ├── tsconfig.json          # TypeScript configuration
 ├── package.json           # Project dependencies
@@ -116,6 +118,14 @@ The API returns standard HTTP status codes and JSON error responses:
   "message": "Error message details"
 }
 ```
+
+## Security
+
+File Vault employs AES-256-GCM encryption for secure file storage. This ensures that files are encrypted before they are saved to the server and can only be decrypted by authorized users with the correct keys.
+
+- Files are encrypted with a secure, randomly generated key for each file.
+- The encryption key is derived from a user-specific password and is not stored on the server.
+- Only authorized users with the correct password can decrypt and access their files.
 
 ## Contributing
 
