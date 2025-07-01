@@ -19,3 +19,11 @@ export interface FileData {
   auth_tag?: string;
   is_encrypted: boolean;
 }
+
+export interface FolderData {
+  id: string;
+  user_id: string;
+  name: string;
+  path: string;
+  created_at: string;
+}

@@ -6,6 +6,10 @@ const router = Router();
 
 const fileController = new FileController();
 
+router.post('/folders', verifyToken, fileController.createFolder);
+
+router.get('/folders', verifyToken, fileController.listFolders);
+
 router.get('/list', verifyToken, fileController.listFiles.bind(fileController));
 
 router.post('/upload', verifyToken, upload.single('file'), fileController.uploadFile.bind(fileController));

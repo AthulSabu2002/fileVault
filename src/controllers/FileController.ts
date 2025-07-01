@@ -18,6 +18,129 @@ const logError = (message: string, error: any) => {
 };
 
 export default class FileController {
+
+  public createFolder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, parentFolderId } = req.body;
+      const user = (req as any).user;
+  
+      if (!name) {
+        res.status(400).json({
+          success: false,
+          message: 'Folder name is required'
+        });
+        return;
+      }
+  
+      const sanitizedName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      let folderPath = `${user.id}/${sanitizedName}`;
+      let parentPath = user.id;
+  
+      if (parentFolderId) {
+        const { data: parentFolder, error: parentError } = await supabase
+          .from('folders')
+          .select('path')
+          .eq('id', parentFolderId)
+          .eq('user_id', user.id)
+          .single();
+  
+        if (parentError || !parentFolder) {
+          res.status(404).json({
+            success: false,
+            message: 'Parent folder not found'
+          });
+          return;
+        }
+  
+        folderPath = `${parentFolder.path}/${sanitizedName}`;
+        parentPath = parentFolder.path;
+      }
+  
+      // Get all folders at the same level
+      const { data: existingFolders, error: checkError } = await supabase
+        .from('folders')
+        .select('name')
+        .eq('user_id', user.id)
+        .like('path', `${parentPath}/%`);
+  
+      if (existingFolders) {
+        // Case insensitive check
+        const folderExists = existingFolders.some(folder => 
+          folder.name.toLowerCase() === sanitizedName.toLowerCase()
+        );
+  
+        if (folderExists) {
+          res.status(400).json({
+            success: false,
+            message: 'A folder with this name already exists (case insensitive)'
+          });
+          return;
+        }
+      }
+  
+      const { data: folderData, error: folderError } = await supabase
+        .from('folders')
+        .insert([
+          {
+            user_id: user.id,
+            name: sanitizedName,
+            path: folderPath
+          }
+        ])
+        .select();
+  
+      if (folderError) {
+        logError('Database error creating folder:', folderError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to create folder'
+        });
+        return;
+      }
+  
+      res.status(201).json({
+        success: true,
+        message: 'Folder created successfully',
+        folder: folderData[0]
+      });
+  
+    } catch (error) {
+      logError('Unexpected error in createFolder:', error);
+      next(error);
+    }
+  }
+  
+  /**
+   * Lists all folders belonging to the authenticated user
+   */
+  public listFolders = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+  
+      const { data: folders, error } = await supabase
+        .from('folders')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+  
+      if (error) {
+        logError('Database error in listFolders:', error);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to fetch folders'
+        });
+        return;
+      }
+  
+      res.status(200).json({
+        success: true,
+        folders
+      });
+    } catch (error) {
+      logError('Unexpected error in listFolders:', error);
+      next(error);
+    }
+  }
   /**
    * Lists all files belonging to the authenticated user
    */
@@ -57,6 +180,7 @@ export default class FileController {
   public uploadFile = async(req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
+      const { folderId } = req.body;
       
       if (!req.file) {
         res.status(400).json({ 
@@ -74,7 +198,28 @@ export default class FileController {
       const { encryptedData, iv, authTag } = encryptFile(fileData);
 
       const uniqueFileName = `${Date.now()}-${originalname}`;
-      const filePath = `${user.id}/${uniqueFileName}`;
+      let filePath = `${user.id}/${uniqueFileName}`;
+      
+      // If folder is specified, update the file path
+      if (folderId) {
+        const { data: folderData, error: folderError } = await supabase
+          .from('folders')
+          .select('path')
+          .eq('id', folderId)
+          .eq('user_id', user.id)
+          .single();
+          
+        if (folderError || !folderData) {
+          res.status(404).json({
+            success: false,
+            message: 'Folder not found'
+          });
+          return;
+        }
+        
+        // Use folder path instead of just user ID
+        filePath = `${folderData.path}/${uniqueFileName}`;
+      }
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(bucketName)
@@ -110,7 +255,8 @@ export default class FileController {
           url: publicUrl,
           iv,
           auth_tag: authTag,
-          is_encrypted: true
+          is_encrypted: true,
+          folder_id: folderId || null
         }
       ]);
 
@@ -138,7 +284,6 @@ export default class FileController {
       next(error);
     }
   }
-
   /**
    * Handles file download from Supabase storage
    * Decrypts files before sending to client
