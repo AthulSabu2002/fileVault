@@ -18,6 +18,8 @@ router.post('/download', verifyToken, fileController.downloadFile.bind(fileContr
 
 router.put('/update', verifyToken, fileController.updateFileName.bind(fileController));
 
+router.put('/folder', verifyToken, fileController.updateFolderName.bind(fileController));
+
 router.delete('/delete', verifyToken, fileController.deleteFile.bind(fileController));
 
 router.delete('/folder/delete', verifyToken, fileController.deleteFolder.bind(fileController));
