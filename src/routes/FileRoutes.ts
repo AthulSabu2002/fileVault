@@ -20,4 +20,6 @@ router.put('/update', verifyToken, fileController.updateFileName.bind(fileContro
 
 router.delete('/delete', verifyToken, fileController.deleteFile.bind(fileController));
 
+router.delete('/folder/delete', verifyToken, fileController.deleteFolder.bind(fileController));
+
 export default router;

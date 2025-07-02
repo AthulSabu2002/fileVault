@@ -460,6 +460,233 @@ export default class FileController {
   }
 
   /**
+   * Updates a folder name and maintains all file paths and nested folder paths
+   */
+  public updateFolderName = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { folderId, newName } = req.body;
+      const user = (req as any).user;
+
+      if (!folderId || !newName) {
+        res.status(400).json({
+          success: false,
+          message: 'Folder ID and new name are required'
+        });
+        return;
+      }
+
+      const sanitizedName = newName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      const { data: folderData, error: folderError } = await supabase
+        .from('folders')
+        .select('*')
+        .eq('id', folderId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (folderError || !folderData) {
+        res.status(404).json({
+          success: false,
+          message: 'Folder not found'
+        });
+        return;
+      }
+
+      const oldPath = folderData.path;
+      const pathParts = oldPath.split('/');
+      
+      const oldName = pathParts.pop();
+      const parentPath = pathParts.join('/');
+      
+      const { data: existingFolders, error: checkError } = await supabase
+        .from('folders')
+        .select('name')
+        .eq('user_id', user.id)
+        .neq('id', folderId)
+        .like('path', `${parentPath}/%`);
+      
+      if (existingFolders) {
+        const folderExists = existingFolders.some(folder => 
+          folder.name.toLowerCase() === sanitizedName.toLowerCase()
+        );
+
+        if (folderExists) {
+          res.status(400).json({
+            success: false,
+            message: 'A folder with this name already exists (case insensitive)'
+          });
+          return;
+        }
+      }
+
+      const newPath = `${parentPath}/${sanitizedName}`;
+      
+      const { data: filesInFolder, error: filesError } = await supabase
+        .from('files')
+        .select('*')
+        .eq('folder_id', folderId);
+      
+      if (filesError) {
+        logError('Error finding files in folder:', filesError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to find files in folder'
+        });
+        return;
+      }
+      
+      const { data: nestedFolders, error: nestedFoldersError } = await supabase
+        .from('folders')
+        .select('*')
+        .neq('id', folderId) 
+        .ilike('path', `${oldPath}/%`);
+      
+      if (nestedFoldersError) {
+        logError('Error finding nested folders:', nestedFoldersError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to find nested folders'
+        });
+        return;
+      }
+      
+      if (filesInFolder && filesInFolder.length > 0) {
+        for (const file of filesInFolder) {
+          const filePathParts = file.path.split('/');
+          const filename = filePathParts.pop();
+          const newFilePath = `${newPath}/${filename}`;
+          
+          const { error: moveError } = await supabase.storage
+            .from('file-vault')
+            .move(file.path, newFilePath);
+          
+          if (moveError) {
+            logError(`Error moving file ${file.path}:`, moveError);
+            res.status(500).json({
+              success: false,
+              message: `Failed to move file: ${file.originalname}`
+            });
+            return;
+          }
+          
+          const { data: urlData } = supabase.storage
+            .from('file-vault')
+            .getPublicUrl(newFilePath);
+            
+          const publicUrl = urlData?.publicUrl || null;
+          
+          const { error: updateFileError } = await supabase
+            .from('files')
+            .update({
+              path: newFilePath,
+              url: publicUrl
+            })
+            .eq('id', file.id);
+          
+          if (updateFileError) {
+            logError(`Error updating file record ${file.id}:`, updateFileError);
+            res.status(500).json({
+              success: false,
+              message: `Failed to update file record: ${file.originalname}`
+            });
+            return;
+          }
+        }
+      }
+      
+      if (nestedFolders && nestedFolders.length > 0) {
+        for (const folder of nestedFolders) {
+          const newNestedPath = folder.path.replace(oldPath, newPath);
+          
+          const { error: updateNestedError } = await supabase
+            .from('folders')
+            .update({ path: newNestedPath })
+            .eq('id', folder.id);
+          
+          if (updateNestedError) {
+            logError(`Error updating nested folder ${folder.id}:`, updateNestedError);
+            res.status(500).json({
+              success: false,
+              message: `Failed to update nested folder: ${folder.name}`
+            });
+            return;
+          }
+          
+          const { data: nestedFiles, error: nestedFilesError } = await supabase
+            .from('files')
+            .select('*')
+            .eq('folder_id', folder.id);
+          
+          if (nestedFilesError) {
+            logError(`Error finding files in nested folder ${folder.id}:`, nestedFilesError);
+            continue;
+          }
+          
+          if (nestedFiles && nestedFiles.length > 0) {
+            for (const file of nestedFiles) {
+              const newFilePath = file.path.replace(oldPath, newPath);
+              
+              const { error: moveError } = await supabase.storage
+                .from('file-vault')
+                .move(file.path, newFilePath);
+              
+              if (moveError) {
+                logError(`Error moving nested file ${file.path}:`, moveError);
+                continue;
+              }
+              
+              const { data: urlData } = supabase.storage
+                .from('file-vault')
+                .getPublicUrl(newFilePath);
+                
+              const publicUrl = urlData?.publicUrl || null;
+              
+              await supabase
+                .from('files')
+                .update({
+                  path: newFilePath,
+                  url: publicUrl
+                })
+                .eq('id', file.id);
+            }
+          }
+        }
+      }
+      
+      const { error: updateError } = await supabase
+        .from('folders')
+        .update({
+          name: sanitizedName,
+          path: newPath
+        })
+        .eq('id', folderId);
+      
+      if (updateError) {
+        logError('Error updating folder:', updateError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to update folder'
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Folder name updated successfully',
+        folder: {
+          id: folderId,
+          name: sanitizedName,
+          path: newPath
+        }
+      });
+      
+    } catch (error) {
+      logError('Unexpected error in updateFolderName:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Handles file delete from Supabase storage
    */
   public deleteFile = async (req: Request, res: Response, next: NextFunction) => {
@@ -528,6 +755,145 @@ export default class FileController {
 
     } catch (error) {
       logError('Unexpected error in deleteFile:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Deletes a folder and all its contents (files and subfolders)
+   */
+  public deleteFolder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { folderId } = req.body;
+      const user = (req as any).user;
+
+      if (!folderId) {
+        res.status(400).json({
+          success: false,
+          message: 'Folder ID is required'
+        });
+        return;
+      }
+
+      const { data: folderData, error: folderError } = await supabase
+        .from('folders')
+        .select('*')
+        .eq('id', folderId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (folderError || !folderData) {
+        res.status(404).json({
+          success: false,
+          message: 'Folder not found'
+        });
+        return;
+      }
+
+      const folderPath = folderData.path;
+
+      const { data: nestedFolders, error: nestedFoldersError } = await supabase
+        .from('folders')
+        .select('id')
+        .neq('id', folderId) 
+        .ilike('path', `${folderPath}/%`); 
+
+      if (nestedFoldersError) {
+        logError('Error finding nested folders:', nestedFoldersError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to find nested folders'
+        });
+        return;
+      }
+      
+      const allFolderIds = [folderId];
+      if (nestedFolders && nestedFolders.length > 0) {
+        allFolderIds.push(...nestedFolders.map(folder => folder.id));
+      }
+      
+      const { data: filesData, error: filesError } = await supabase
+        .from('files')
+        .select('*')
+        .in('folder_id', allFolderIds);
+
+      if (filesError) {
+        logError('Error finding files in folders:', filesError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to find files in folders'
+        });
+        return;
+      }
+
+      if (filesData && filesData.length > 0) {
+        const filePaths = filesData.map(file => file.path);
+        
+        const { error: storageError } = await supabase.storage
+          .from('file-vault')
+          .remove(filePaths);
+
+        if (storageError) {
+          logError('Error deleting files from storage:', storageError);
+          res.status(500).json({
+            success: false,
+            message: 'Failed to delete files from storage'
+          });
+          return;
+        }
+
+        const { error: deleteFilesError } = await supabase
+          .from('files')
+          .delete()
+          .in('folder_id', allFolderIds);
+
+        if (deleteFilesError) {
+          logError('Error deleting file records:', deleteFilesError);
+          res.status(500).json({
+            success: false,
+            message: 'Failed to delete file records'
+          });
+          return;
+        }
+      }
+      
+      if (nestedFolders && nestedFolders.length > 0) {
+        const { error: deleteNestedFoldersError } = await supabase
+          .from('folders')
+          .delete()
+          .in('id', nestedFolders.map(folder => folder.id));
+        
+        if (deleteNestedFoldersError) {
+          logError('Error deleting nested folders:', deleteNestedFoldersError);
+          res.status(500).json({
+            success: false,
+            message: 'Failed to delete nested folders'
+          });
+          return;
+        }
+      }
+
+      const { error: deleteFolderError } = await supabase
+        .from('folders')
+        .delete()
+        .eq('id', folderId);
+
+      if (deleteFolderError) {
+        logError('Error deleting main folder:', deleteFolderError);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to delete folder'
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Folder and all contents deleted successfully'
+      });
+
+    } catch (error) {
+      logError('Unexpected error in deleteFolder:', error);
       next(error);
     }
   }
